@@ -7,9 +7,11 @@ Google-spec-compatible TSV feed (feed.txt) that Microsoft Merchant
 Center can fetch on a schedule.
 
 Env vars required:
-  SHOPIFY_SHOP         e.g. k9zkug-ur.myshopify.com
-  SHOPIFY_ADMIN_TOKEN  Admin API token with read_products scope
-  STORE_URL            optional, default https://noavvo.com
+  SHOPIFY_SHOP           e.g. k9zkug-ur.myshopify.com
+  SHOPIFY_CLIENT_ID      Dev Dashboard app Client ID
+  SHOPIFY_CLIENT_SECRET  Dev Dashboard app Client secret
+  (or SHOPIFY_ADMIN_TOKEN, if you have a legacy admin custom-app token)
+  STORE_URL              optional, default https://noavvo.com
 
 Output: feed.txt (tab-separated, UTF-8) in the working directory.
 """
@@ -24,7 +26,9 @@ import time
 import requests
 
 SHOP = os.environ["SHOPIFY_SHOP"]
-TOKEN = os.environ["SHOPIFY_ADMIN_TOKEN"]
+TOKEN = os.environ.get("SHOPIFY_ADMIN_TOKEN")
+CLIENT_ID = os.environ.get("SHOPIFY_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("SHOPIFY_CLIENT_SECRET")
 STORE = os.environ.get("STORE_URL", "https://noavvo.com").rstrip("/")
 API_VERSION = "2025-10"
 OUT_FILE = "feed.txt"
@@ -40,7 +44,27 @@ COLOR_WORDS = {
 }
 
 session = requests.Session()
-session.headers.update({"X-Shopify-Access-Token": TOKEN})
+
+
+def get_access_token():
+    """Use a legacy token if provided, otherwise exchange Dev Dashboard
+    client credentials for a fresh Admin API access token."""
+    if TOKEN:
+        return TOKEN
+    if not (CLIENT_ID and CLIENT_SECRET):
+        sys.exit("Set SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET "
+                 "(or SHOPIFY_ADMIN_TOKEN).")
+    resp = requests.post(
+        f"https://{SHOP}/admin/oauth/access_token",
+        json={
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
 
 
 def fetch_all_products():
@@ -179,6 +203,7 @@ HEADER = [
 
 
 def main():
+    session.headers.update({"X-Shopify-Access-Token": get_access_token()})
     products = fetch_all_products()
     print(f"Fetched products: {len(products)}")
     rows = build_rows(products)
