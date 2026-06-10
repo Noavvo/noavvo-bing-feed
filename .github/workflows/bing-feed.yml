@@ -1,0 +1,50 @@
+# NOAVVO - Microsoft (Bing) Shopping feed
+# Regenerates feed.txt daily at 03:00 UTC and commits it to the repo.
+# Microsoft Merchant Center then fetches the raw file on its own schedule:
+#   https://raw.githubusercontent.com/<USER>/<REPO>/main/feed.txt
+#
+# Repo secrets required (Settings -> Secrets and variables -> Actions):
+#   SHOPIFY_SHOP         = k9zkug-ur.myshopify.com
+#   SHOPIFY_ADMIN_TOKEN  = Admin API token with read_products scope
+#
+# NOTE: the repo must be PUBLIC for the raw.githubusercontent.com URL to be
+# fetchable by Microsoft without authentication. The feed contains only
+# public catalog data (titles, prices, links) - nothing sensitive.
+# The token itself lives in Secrets and is never written to the repo.
+
+name: Bing Shopping feed
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # daily, 03:00 UTC
+  workflow_dispatch:        # allows manual runs from the Actions tab
+
+jobs:
+  build-feed:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate feed
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+          STORE_URL: https://noavvo.com
+        run: python bing_feed.py
+
+      - name: Commit updated feed
+        run: |
+          git config user.name "noavvo-feed-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add feed.txt
+          git diff --cached --quiet || git commit -m "Update Bing Shopping feed"
+          git push
